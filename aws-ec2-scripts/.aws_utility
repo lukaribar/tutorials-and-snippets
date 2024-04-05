@@ -1,0 +1,71 @@
+# Use this instance name if no arg passed
+DEFAULT_NAME="your-default-instance-name"
+
+# Use this host name in ssh config if no arg passed
+DEFAULT_HOST_NAME="aws"
+
+# Path to ssh config
+CONFIG_PATH="your-home-path/.ssh/config"
+
+# Get IP address of an instance (optional arg: instance_name)
+get_ec2_ip() {
+    local instance_name=${1:-$DEFAULT_NAME}
+    local ip_address=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=$instance_name" --query "Reservations[].Instances[].PublicIpAddress" --output text)
+    if [ -z "$ip_address" ]
+    then
+        echo "No IP address is set for instance $instance_name"
+    else
+        echo "IP address of instance $instance_name: $ip_address"
+    fi
+}
+
+# Start an existing instance (optional args: instance_name, host_name)
+start_ec2_instance() {
+    # Get the instance id
+    local instance_name=${1:-$DEFAULT_NAME}
+    local instance_id=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=$instance_name" --query "Reservations[].Instances[].InstanceId" --output text)
+    if [ -z "$instance_id" ]
+    then
+        echo "No instance named $instance_name was found"
+        return
+    fi
+    
+    # Start the instance
+    echo "Starting instance $instance_name (id: $instance_id)"
+    aws ec2 start-instances --instance-ids $instance_id
+    
+    # Wait for the IP address to update
+    echo "Configuring new IP address in $CONFIG_PATH (may take a few seconds)"
+    local ip_address=""
+    while [ -z "$ip_address" ]
+    do
+        sleep 1
+        ip_address=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=$instance_name" --query "Reservations[].Instances[].PublicIpAddress" --output text)
+    done
+    
+    # Update ssh config with the new IP address
+    local host_name=${2:-$DEFAULT_HOST_NAME}
+    if ! grep -q "Host $host_name" "$CONFIG_PATH"; then
+        echo "Host $host_name not found in $CONFIG_PATH"
+        return
+    fi
+    sed -i.backup "/^Host $host_name/{n;s/\(HostName \)[0-9.]*$/\1$ip_address/}" $CONFIG_PATH \
+    && echo "Configured new IP address ($ip_address) in $CONFIG_PATH" \
+    || echo "Failed to update $CONFIG_PATH"
+}
+
+# Stop an existing instance (optional arg: instance_name)
+stop_ec2_instance() {
+    # Get the instance id
+    local instance_name=${1:-$DEFAULT_NAME}
+    local instance_id=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=$instance_name" --query "Reservations[].Instances[].InstanceId" --output text)
+    if [ -z "$instance_id" ]
+    then
+        echo "No instance named $instance_name was found"
+        return
+    fi
+
+    # Stop the instance
+    echo "Stopping instance $instance_name (id: $instance_id)"
+    aws ec2 stop-instances --instance-ids $instance_id
+}
