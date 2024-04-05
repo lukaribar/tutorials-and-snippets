@@ -1,4 +1,4 @@
-# tutorials
+# tutorials-and-snippets
 
 Repository containing short tutorials and useful code snippets.
 
